@@ -705,7 +705,15 @@ MonoBehaviour:
   airSpeed: 5
   groundAcceleration: 50
   airAcceleration: 20
+  coyoteTimeLength: 0.2
+  jumpBufferLength: 0.2
+  jumpHeight: 2
   viewTransform: {fileID: 352649864}
+  character: {fileID: 0}
+  moveVector: {x: 0, y: 0, z: 0}
+  lastPos: {x: 0, y: 0, z: 0}
+  jumpBuffer: 0
+  coyoteTime: 0
 --- !u!1 &367887722
 GameObject:
   m_ObjectHideFlags: 0
@@ -1685,6 +1693,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   pivot: {fileID: 352649864}
   mouseSensitivity: 2
+  angles: {x: 0, y: 0, z: 0}
 --- !u!1 &1063646295
 GameObject:
   m_ObjectHideFlags: 0
