@@ -1,0 +1,22 @@
+{
+    "name": "com.floofinator.rigidbody-character",
+    "version": "0.1.0",
+    "displayName": "Rigidbody Character",
+    "description": "A unity package for a rigidbody character controller with basic stair stepping.",
+    "unity": "2022.3",
+    "dependencies": {
+   },
+    "author": {
+      "name": "Floofinator",
+      "email": "contact@floofinator.com",
+      "url": "https://www.floofinator.com"
+    },
+    "samples": [
+        {
+            "displayName": "POV Controller Sample",
+            "description": "Contains a basic POV character controller and a sample scene.",
+            "path": "Samples~/BasicPOV"
+        }
+    ]
+  }
+  
