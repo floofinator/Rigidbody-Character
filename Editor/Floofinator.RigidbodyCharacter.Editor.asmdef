@@ -1,0 +1,16 @@
+{
+    "name": "Floofinator.RigidbodyCharacter.Editor",
+    "rootNamespace": "Floofinator.RigidbodyCharacter.Editor",
+    "references": [
+        "GUID:9a716a1cab01c0740a8559b791e8f73e"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

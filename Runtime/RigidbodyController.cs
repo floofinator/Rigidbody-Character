@@ -7,19 +7,18 @@ namespace Floofinator.RigidbodyCharacter
     public class RigidbodyCharacterController : MonoBehaviour
     {
         [SerializeField, Tooltip("Layers considered in casting."), Header("Physics")] LayerMask castMask;
-        [SerializeField, Tooltip("Distance to cast for the ground.")] float groundDistance = 0.3f;
+        [SerializeField, Tooltip("Distance to cast for the ground.")] float groundDistance = 0.05f;
+        [SerializeField, Tooltip("Height to cast for step.")] float stepHeight = 0.3f;
         [SerializeField, Tooltip("Margin for casting.")] float castMargin = 0.01f;
         [SerializeField, Range(0, 1), Tooltip("Minimum dot product between ground normal and transform up to be considered ground.")] float groundDot = 0.5f;
-        [SerializeField, Tooltip("Apply gravity to transform down.")] bool transformGravity = false;
-
         public bool LastGrounded => lastGrounded;
         public Rigidbody Rigidbody => rb;
         public UnityEvent OnGrounded, OnUngrounded, OnBeforeUpdate, OnAfterUpdate;
         CapsuleCollider capsule;
         Rigidbody rb;
-        Vector3 lastGroundNormal = Vector3.up;
-        Vector3 lastVelocity;
-        bool lastGrounded;
+        Vector3 groundNormal = Vector3.up, groundPoint = Vector3.zero;
+        bool lastGrounded, leaveGround;
+        Rigidbody groundBody;
         private void Awake()
         {
             rb = GetComponent<Rigidbody>();
@@ -39,58 +38,105 @@ namespace Floofinator.RigidbodyCharacter
         }
         void FixedUpdate()
         {
-            rb.velocity = lastVelocity;
-
             OnBeforeUpdate?.Invoke();
 
             CheckGround();
 
             OnAfterUpdate?.Invoke();
+        }
+        public Vector3 GetGroundVelocity()
+        {
+            return GroundProject(rb.velocity) - GroundProject(BodyVelocity());
+        }
+        public void SetGroundVelocity(Vector3 velocity)
+        {
+            Vector3 vertical = NormalProject(rb.velocity);
+            Vector3 horizontal = velocity + GroundProject(BodyVelocity());
 
-            //store velocity to reinforce movement after collisions
-            lastVelocity = rb.velocity;
+            rb.velocity = vertical + horizontal;
         }
-        public Vector3 VerticalVelocity()
+        public Vector3 GetNormalVelocity()
         {
-            return Vector3.Project(rb.velocity, GravityVector().normalized);
+            return NormalProject(rb.velocity) - NormalProject(BodyVelocity());
         }
-        public Vector3 HorizontalVelocity()
+        public void SetNormalVelocity(Vector3 velocity)
         {
-            return Vector3.ProjectOnPlane(rb.velocity, GravityVector().normalized);
+            Vector3 vertical = velocity + NormalProject(BodyVelocity());
+            Vector3 horizontal = GroundProject(rb.velocity);
+
+            rb.velocity = vertical + horizontal;
         }
         public Vector3 GroundProject(Vector3 vector)
         {
-            return Vector3.ProjectOnPlane(vector, lastGroundNormal);
+            return Vector3.ProjectOnPlane(vector, groundNormal);
+        }
+        public Vector3 NormalProject(Vector3 vector)
+        {
+            return Vector3.Project(vector, groundNormal);
         }
         public Vector3 GravityVector()
         {
-            if (transformGravity)
-                return Physics.gravity.magnitude * -transform.up;
-            else
-                return Physics.gravity;
+            return Physics.gravity.magnitude * -transform.up;
+        }
+        public void LeaveGround()
+        {
+            leaveGround = true;
+        }
+        Vector3 BodyVelocity()
+        {
+            if (!groundBody) return Vector3.zero;
+            return groundBody.GetPointVelocity(groundPoint);
         }
         void CheckGround()
         {
-            bool grounded = GroundCast(out RaycastHit hitInfo);
+            bool canGround = GroundCast(out RaycastHit groundInfo);
+
+            bool canStep = StepCast(out RaycastHit stepInfo, out Vector3 stepOffset);
+
+            groundBody = null;
+            groundNormal = -GravityVector().normalized;
+
+            if (canGround)
+            {
+                groundNormal = groundInfo.normal;
+                groundPoint = groundInfo.point;
+                if (groundInfo.collider) groundBody = groundInfo.collider.attachedRigidbody;
+            }
+
+            bool groundToStep = canStep && canGround && lastGrounded;
+            bool airToStep = canStep && canGround && IsFalling();
+
+            if (airToStep || groundToStep)
+            {
+                groundNormal = stepInfo.normal;
+                groundPoint = stepInfo.point;
+                if (stepInfo.collider) groundBody = stepInfo.collider.attachedRigidbody;
+            }
+
+            bool grounded = !leaveGround && canGround && IsGround(groundNormal);
 
             if (grounded)
             {
-                lastGroundNormal = hitInfo.normal;
-
+                ApplyGroundSnap(stepOffset);
                 if (!lastGrounded) OnGrounded?.Invoke();
-
-                rb.velocity = GroundProject(rb.velocity);
             }
             else
             {
-                lastGroundNormal = -GravityVector().normalized;
-
-                if (lastGrounded) OnUngrounded?.Invoke();
-
                 ApplyGravity();
+                if (lastGrounded) OnUngrounded?.Invoke();
             }
 
+            leaveGround = false;
             lastGrounded = grounded;
+        }
+        void ApplyGroundSnap(Vector3 stepOffset)
+        {
+            rb.MovePosition(rb.position + stepOffset);
+            rb.velocity = GroundProject(rb.velocity) + NormalProject(BodyVelocity());
+        }
+        void ApplyGroundVelocity()
+        {
+            rb.MovePosition(rb.position + BodyVelocity() * Time.deltaTime);
         }
         void ApplyGravity()
         {
@@ -98,7 +144,26 @@ namespace Floofinator.RigidbodyCharacter
         }
         bool GroundCast(out RaycastHit hitInfo)
         {
-            Vector3 horizontal = HorizontalVelocity();
+            Vector3 castOffset = Vector3.zero;
+            Vector3 upDirection = -GravityVector().normalized;
+
+            return Cast(ref castOffset, groundDistance * -upDirection, out hitInfo);
+        }
+        bool IsFalling()
+        {
+            Vector3 upDirection = -GravityVector().normalized;
+            return Vector3.Dot(rb.velocity.normalized, upDirection) < groundDot;
+        }
+        bool IsGround(Vector3 normal)
+        {
+            Vector3 upDirection = -GravityVector().normalized;
+            return Vector3.Dot(normal, upDirection) > groundDot;
+        }
+        bool StepCast(out RaycastHit hitInfo, out Vector3 stepOffset)
+        {
+            stepOffset = Vector3.zero;
+
+            Vector3 horizontal = GroundProject(rb.velocity);
 
             Vector3 velocityDirection = horizontal.normalized;
             float velocityDistance = horizontal.magnitude * Time.deltaTime;
@@ -109,28 +174,24 @@ namespace Floofinator.RigidbodyCharacter
             Vector3 castOffset = Vector3.zero;
 
             //first cast upwards by step height
-            Cast(ref castOffset, groundDistance * upDirection, out hitInfo);
+            Cast(ref castOffset, stepHeight * upDirection, out _);
 
             //then cast forwards by distance
-            Cast(ref castOffset, velocityDistance * velocityDirection, out hitInfo);
+            Cast(ref castOffset, velocityDistance * velocityDirection, out _);
 
             //then cast down by twice step height
-            if (Cast(ref castOffset, groundDistance * 2f * -upDirection, out hitInfo))
+            if (Cast(ref castOffset, stepHeight * 2f * -upDirection, out hitInfo))
             {
-                Vector3 verticalOffset = Vector3.Project(castOffset, upDirection);
-                Vector3 hitDir = Vector3.ProjectOnPlane(rb.position - hitInfo.point, upDirection);
-
-                Vector3 normalCastPoint = hitInfo.point + hitDir * Time.deltaTime + upDirection * groundDistance;
                 //cast down again to get the normal from above
-                Physics.Raycast(normalCastPoint, -upDirection, out hitInfo, groundDistance * 2, castMask);
-                //check normal can be counted as ground
-                if (Vector3.Dot(hitInfo.normal, upDirection) > groundDot)
-                {
-                    //move ourselves vertically if we cast for the ground
-                    rb.position = (rb.position + verticalOffset);
+                Vector3 hitDir = Vector3.ProjectOnPlane(rb.position - hitInfo.point, upDirection);
+                Vector3 normalCastPoint = hitInfo.point + hitDir * Time.deltaTime + upDirection * stepHeight;
+                Physics.Raycast(normalCastPoint, -upDirection, out hitInfo, stepHeight * 2, castMask);
 
-                    return true;
-                }
+                //move ourselves vertically if we cast for the ground
+
+                stepOffset = NormalProject(castOffset);
+
+                return true;
             }
 
             hitInfo = default;
@@ -143,7 +204,6 @@ namespace Floofinator.RigidbodyCharacter
             float distance = vector.magnitude + castMargin;
 
             Vector3 pointMargin = -direction * castMargin;
-
             Vector3 bottomCastPoint = CapsuleExtent(Vector3.down) + pointOffset + pointMargin;
             Vector3 topCastPoint = CapsuleExtent(Vector3.up) + pointOffset + pointMargin;
 
@@ -156,9 +216,6 @@ namespace Floofinator.RigidbodyCharacter
             Vector3 castOffset = distance * direction;
 
             pointOffset += castOffset;
-
-            Debug.DrawLine(bottomCastPoint, bottomCastPoint + castOffset);
-            Debug.DrawLine(topCastPoint, topCastPoint + castOffset);
 
             return hit;
         }
